@@ -23,6 +23,13 @@ const OUTSOURCING_FEE_RATE = 0.2;
 const OTA_FEE_RATE = 0.13;
 const SYSTEM_FEE = 3960;
 const CHECKIN_TABLET_COST = 9980;
+const MINPAKU_LAW_MAX_DAYS = 180; // 民泊新法の年間稼働上限日数
+
+/* 月の日数を取得 */
+function getDaysInMonth(year: number, month1: number): number {
+  // month1は1-12の範囲
+  return new Date(year, month1, 0).getDate();
+}
 
 /* 数値正規化ユーティリティ */
 const N = (v: any, d = 0) => {
@@ -186,6 +193,65 @@ function growthFactor(monthIndexFromStart: number): number {
   return 1.0;
 }
 
+/* 民泊新法適用時の稼働日数を計算（年間180日制限を適用） */
+function calculateEffectiveWorkingDays(
+  monthWindow: { idx: number; year: number; month1: number; label: string }[],
+  workingDaysTable: Map<string, any>,
+  prefJa: string,
+  isLaw: boolean,
+): Map<string, number> {
+  const effectiveDays = new Map<string, number>();
+
+  if (!isLaw) {
+    // 民泊新法非適用: CSVの稼働日数をそのまま使用
+    monthWindow.forEach(({ month1, label }) => {
+      const monthKey = MONTHS_JA[month1 - 1];
+      const days = N((workingDaysTable.get(prefJa) || {})[monthKey], 0);
+      effectiveDays.set(label, days);
+    });
+    return effectiveDays;
+  }
+
+  // 民泊新法適用: 年間180日制限を適用
+  // 年ごとにグループ化して180日を按分
+  const yearGroups = new Map<number, { month1: number; label: string; rawDays: number }[]>();
+
+  monthWindow.forEach(({ year, month1, label }) => {
+    const monthKey = MONTHS_JA[month1 - 1];
+    const rawDays = N((workingDaysTable.get(prefJa) || {})[monthKey], 0);
+
+    if (!yearGroups.has(year)) {
+      yearGroups.set(year, []);
+    }
+    yearGroups.get(year)!.push({ month1, label, rawDays });
+  });
+
+  // 各年の稼働日数を180日に制限
+  yearGroups.forEach((months, year) => {
+    const totalRawDays = months.reduce((sum, m) => sum + m.rawDays, 0);
+
+    if (totalRawDays <= MINPAKU_LAW_MAX_DAYS) {
+      // 180日以下ならそのまま
+      months.forEach((m) => {
+        effectiveDays.set(m.label, m.rawDays);
+      });
+    } else {
+      // 180日を超える場合は按分
+      // シミュレーション期間が1年未満の場合は、月数に応じて按分
+      const monthsInYear = months.length;
+      const annualLimit = Math.round((MINPAKU_LAW_MAX_DAYS / 12) * monthsInYear);
+      const scaleFactor = Math.min(1, annualLimit / totalRawDays);
+
+      months.forEach((m) => {
+        const adjustedDays = Math.round(m.rawDays * scaleFactor);
+        effectiveDays.set(m.label, adjustedDays);
+      });
+    }
+  });
+
+  return effectiveDays;
+}
+
 /* メインシミュレーション関数 */
 export async function simulate(facility: FormValues, rooms: RoomType[], opts?: SimulateOptions) {
   console.log("🚀 === Pro版シミュレーション開始 ===");
@@ -267,9 +333,18 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
   const prefectureWorkingDays = workingDaysTable.get(prefJa) || {};
   const prefectureMonthlyIndex = monthlyIndexTable.get(prefJa) || {};
 
+  // 民泊新法適用時の稼働日数制限を計算
+  const effectiveWorkingDaysMap = calculateEffectiveWorkingDays(
+    monthWindow,
+    workingDaysTable,
+    prefJa,
+    !!facility.isLaw,
+  );
+
   console.log("📅 稼働日数（サンプル）:", {
     "1月": prefectureWorkingDays["1月"],
     "7月": prefectureWorkingDays["7月"],
+    "民泊新法適用": facility.isLaw ? "はい（180日/年制限）" : "いいえ",
   });
   console.log("📈 月次指数（サンプル）:", {
     "1月": prefectureMonthlyIndex["1月"],
@@ -324,14 +399,19 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
 
     monthWindow.forEach(({ idx, month1, label }) => {
       const monthKey = MONTHS_JA[month1 - 1];
-      const workingDays = N(prefectureWorkingDays[monthKey], 0);
+      // 民泊新法適用時は制限された稼働日数を使用
+      const workingDays = effectiveWorkingDaysMap.get(label) ?? N(prefectureWorkingDays[monthKey], 0);
       const monthlyIndex = N(prefectureMonthlyIndex[monthKey], 1);
 
       const nightlyPrice = baseNightly * monthlyIndex * BUILDING_AGE_INDEX;
       const accommodationRevenueOne = workingDays * nightlyPrice;
-      const cleaningRevenueOne = (workingDays / avgStay) * cleaningUnit;
 
-      // simple版に合わせて：1部屋売上 = 宿泊売上 + 清掃売上
+      // 清掃売上: ゲストから受け取る清掃料金（売上として計上）
+      // ※清掃回数 = 稼働日数 / 平均宿泊数
+      const cleaningCount = workingDays / avgStay;
+      const cleaningRevenueOne = cleaningCount * cleaningUnit;
+
+      // 1部屋売上 = 宿泊売上 + 清掃売上
       const oneRoomRevenue = accommodationRevenueOne + cleaningRevenueOne;
       // 部屋タイプ合計売上 = 1部屋売上 × 部屋数
       const baseTypeRevenue = oneRoomRevenue * roomCount;
@@ -340,10 +420,12 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
       const g = growthFactor(idx);
       const typeRevenue = baseTypeRevenue * g;
 
-      // パターンA：変動費は成長後の売上に対して計算
+      // 変動費は成長後の売上に対して計算
       const outsourcingFee = Math.round(typeRevenue * OUTSOURCING_FEE_RATE);
       const otaFee = Math.round(typeRevenue * OTA_FEE_RATE);
-      const cleaningCost = Math.round(roomCount * cleaningUnit * (workingDays / avgStay));
+      // 清掃費: 清掃業者への支払い（経費として計上）
+      // ※清掃売上と同額で計算（実際は業者との契約により異なる可能性あり）
+      const cleaningCost = Math.round(roomCount * cleaningUnit * cleaningCount);
       const consumablesCost = Math.round(roomCount * workingDays * consumablesPerNight);
 
       const totalExpenses =
@@ -444,26 +526,28 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
     return sum + r.monthlyExpenses.reduce((ss: number, m: any) => ss + N(m.consumablesCost, 0), 0);
   }, 0);
 
-  // 稼働率の計算を修正
-  // 民泊新法適用時は180日を基準、そうでない場合は365日を基準
-  const baseDays = facility.isLaw ? 180 : 365;
-
-  // 期間中の実際の稼働日数を計算
-  const totalWorkingDays = monthWindow.reduce((sum, { month1 }) => {
-    return sum + N((workingDaysTable.get(prefJa) || {})[MONTHS_JA[month1 - 1]], 0);
+  // 稼働率の計算
+  // 実際の稼働日数（民泊新法適用時は制限後の値）
+  const totalEffectiveWorkingDays = monthWindow.reduce((sum, { label }) => {
+    return sum + (effectiveWorkingDaysMap.get(label) ?? 0);
   }, 0);
 
-  // 期間中の理論上最大稼働日数を計算
-  // 各月の最大稼働日数は、その月の稼働日数テーブルの値
-  const maxPossibleDays = monthWindow.reduce((sum, { month1 }) => {
-    const monthKey = MONTHS_JA[month1 - 1];
-    const workingDays = N((workingDaysTable.get(prefJa) || {})[monthKey], 0);
-    return sum + workingDays;
+  // 期間中のカレンダー日数（理論上の最大稼働可能日数）
+  const totalCalendarDays = monthWindow.reduce((sum, { year, month1 }) => {
+    return sum + getDaysInMonth(year, month1);
   }, 0);
 
-  // 稼働率 = 実際の稼働日数 / 最大可能稼働日数 × 100
-  // ただし、100%を超えないように制限
-  const rawOccupancyRate = maxPossibleDays > 0 ? (totalWorkingDays / maxPossibleDays) * 100 : 0;
+  // 民泊新法適用時の年間上限日数（期間に応じて按分）
+  const annualLimitDays = facility.isLaw
+    ? Math.round((MINPAKU_LAW_MAX_DAYS / 12) * monthsLen)
+    : totalCalendarDays;
+
+  // 稼働率 = 実際の稼働日数 / 理論上の最大日数 × 100
+  // 民泊新法適用時は年間180日が上限なので、それを基準にする
+  const maxPossibleDays = facility.isLaw ? annualLimitDays : totalCalendarDays;
+  const rawOccupancyRate = maxPossibleDays > 0
+    ? (totalEffectiveWorkingDays / maxPossibleDays) * 100
+    : 0;
   const occupancyRate = Math.min(Math.round(rawOccupancyRate * 10) / 10, 100);
 
   const { trash, internet } = (() => {
@@ -504,7 +588,7 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
   console.log("  - 固定費:", `¥${buildingFixedForWindow.toLocaleString()}`);
   console.log("営業利益:", `¥${totalProfitForWindow.toLocaleString()}`);
   console.log(
-    `稼働率: ${occupancyRate}% (年間稼働日数: ${totalWorkingDays}日 / 基準日数: ${Math.round(baseDays * (monthsLen / 12))}日${facility.isLaw ? " ※民泊新法適用" : ""})`,
+    `稼働率: ${occupancyRate}% (稼働日数: ${totalEffectiveWorkingDays}日 / 最大可能日数: ${maxPossibleDays}日${facility.isLaw ? " ※民泊新法180日/年制限適用" : ""})`,
   );
   console.log("🏁 === シミュレーション完了 ===\n");
 

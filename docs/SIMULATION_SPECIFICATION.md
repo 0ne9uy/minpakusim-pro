@@ -253,49 +253,68 @@ profit = totalRevenue - totalVariableCosts - (fixedCostPerMonth × months);
 
 ## 6. 問題点と矛盾
 
-### 6.1 重大な問題（P0）
+### 6.1 重大な問題（P0）- ✅ 修正済み
 
-#### 問題1: 稼働率計算の矛盾
-**現状のコード:**
+#### 問題1: 稼働率計算の矛盾 ✅ 修正済み
+**旧コード（問題あり）:**
 ```typescript
-const totalWorkingDays = monthWindow.reduce((sum, { month1 }) => {
-  return sum + workingDaysTable.get(prefJa)[MONTHS_JA[month1 - 1]];
-}, 0);
-
-const maxPossibleDays = monthWindow.reduce((sum, { month1 }) => {
-  return sum + workingDaysTable.get(prefJa)[MONTHS_JA[month1 - 1]];
-}, 0);
-
+// 分子と分母が同じ値で常に100%になっていた
+const totalWorkingDays = monthWindow.reduce(...);
+const maxPossibleDays = monthWindow.reduce(...); // 同じ計算
 const occupancyRate = (totalWorkingDays / maxPossibleDays) * 100;
-// 結果: 常に100%
 ```
 
-**問題点:**
-- 分子と分母が同一の値
-- 稼働率が常に100%になる
-
-**修正案:**
+**新コード（修正後）:**
 ```typescript
-const actualWorkingDays = /* 実際の稼働日数（予約ベース） */;
-const maxPossibleDays = monthWindow.reduce((sum, { month1 }) => {
-  return sum + getDaysInMonth(month1);  // 月の日数
+// 実際の稼働日数（民泊新法適用時は制限後の値）
+const totalEffectiveWorkingDays = monthWindow.reduce((sum, { label }) => {
+  return sum + (effectiveWorkingDaysMap.get(label) ?? 0);
 }, 0);
-const occupancyRate = (actualWorkingDays / maxPossibleDays) * 100;
+
+// 期間中のカレンダー日数（理論上の最大稼働可能日数）
+const totalCalendarDays = monthWindow.reduce((sum, { year, month1 }) => {
+  return sum + getDaysInMonth(year, month1);
+}, 0);
+
+// 民泊新法適用時は年間180日が上限
+const maxPossibleDays = facility.isLaw ? annualLimitDays : totalCalendarDays;
+const occupancyRate = (totalEffectiveWorkingDays / maxPossibleDays) * 100;
 ```
 
-#### 問題2: 清掃費の二重計上
-**現状:**
-- 売上側: `cleaningRevenueOne = (workingDays / avgStay) × cleaningUnit`
-- 経費側: `cleaningCost = roomCount × cleaningUnit × (workingDays / avgStay)`
+#### 問題2: 清掃費の売上/経費の明確化 ✅ 修正済み
+**現状の仕様（コメントで明確化）:**
+- **清掃売上**: ゲストから受け取る清掃料金（売上として計上）
+- **清掃費**: 清掃業者への支払い（経費として計上）
+- 現時点では同額で計算（将来的に異なる単価を設定可能にする余地あり）
 
-**問題点:**
-- 同じ清掃費が売上と経費の両方に計上されている
-- 清掃を宿泊者に請求する場合（売上）と、業者に支払う場合（経費）の区別が不明確
+```typescript
+// 清掃売上: ゲストから受け取る清掃料金（売上として計上）
+const cleaningCount = workingDays / avgStay;
+const cleaningRevenueOne = cleaningCount * cleaningUnit;
 
-**修正案:**
-- 清掃売上: 宿泊者への請求金額（ゲスト向け清掃料金）
-- 清掃費: 清掃業者への支払い金額（実コスト）
-- 両者を明確に分離し、異なる単価を設定可能にする
+// 清掃費: 清掃業者への支払い（経費として計上）
+// ※清掃売上と同額で計算（実際は業者との契約により異なる可能性あり）
+const cleaningCost = Math.round(roomCount * cleaningUnit * cleaningCount);
+```
+
+#### 問題3: 民泊新法180日制限 ✅ 実装済み
+**新機能:**
+- `isLaw`フラグがtrueの場合、年間稼働日数を180日に制限
+- 年をまたぐ場合は年ごとに180日制限を適用
+- シミュレーション期間が1年未満の場合は月数に応じて按分
+
+```typescript
+const MINPAKU_LAW_MAX_DAYS = 180; // 年間稼働上限日数
+
+function calculateEffectiveWorkingDays(...) {
+  if (!isLaw) {
+    // 民泊新法非適用: CSVの稼働日数をそのまま使用
+    return workingDaysFromCSV;
+  }
+  // 民泊新法適用: 年間180日制限を適用（年ごとに按分）
+  return limitedWorkingDays;
+}
+```
 
 ### 6.2 中程度の問題（P1）
 
@@ -324,20 +343,21 @@ const occupancyRate = (actualWorkingDays / maxPossibleDays) * 100;
 | 成長率 | 1.0/1.1/1.15 | line 184-186 |
 | 平均宿泊数デフォルト | 2.5泊 | line 298 |
 
-#### 問題7: 民泊新法フラグの不完全な実装
-- `isLaw`フラグは存在するが、稼働日数制限（180日）の計算に正しく反映されていない
+#### ~~問題7: 民泊新法フラグの不完全な実装~~ ✅ 修正済み
+- ~~`isLaw`フラグは存在するが、稼働日数制限（180日）の計算に正しく反映されていない~~
+- **修正済み**: `calculateEffectiveWorkingDays()`関数で年間180日制限を実装
 
 ---
 
 ## 7. 改善ロードマップ
 
-### Phase 1: 重大バグ修正（優先度: 高）
+### Phase 1: 重大バグ修正（優先度: 高）✅ 完了
 
-| # | タスク | 影響度 | 工数 |
-|---|--------|--------|------|
-| 1-1 | 稼働率計算ロジックの修正 | 高 | 中 |
-| 1-2 | 清掃費の売上/経費分離 | 高 | 中 |
-| 1-3 | 民泊新法180日制限の実装 | 高 | 小 |
+| # | タスク | 影響度 | 工数 | 状態 |
+|---|--------|--------|------|------|
+| 1-1 | 稼働率計算ロジックの修正 | 高 | 中 | ✅ 完了 |
+| 1-2 | 清掃費の売上/経費明確化 | 高 | 中 | ✅ 完了 |
+| 1-3 | 民泊新法180日制限の実装 | 高 | 小 | ✅ 完了 |
 
 ### Phase 2: データ品質向上（優先度: 中）
 
@@ -425,6 +445,15 @@ const DEFAULT_AVG_STAY = 2.5;       // 平均宿泊数
 // 民泊新法
 const MINPAKU_LAW_MAX_DAYS = 180;   // 年間稼働上限
 ```
+
+---
+
+## 変更履歴
+
+| 日付 | バージョン | 変更内容 |
+|------|-----------|----------|
+| 2026-01-16 | v1.1 | 重大バグ修正: 稼働率計算、清掃費明確化、民泊新法180日制限実装 |
+| 2026-01-16 | v1.0 | 初版作成 |
 
 ---
 

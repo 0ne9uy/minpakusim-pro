@@ -1,0 +1,5 @@
+minArea,maxArea,rank,waterutilityCost,minCapacity,maxCapacity
+1,25,A,11000,1,4
+26,40,B,26000,1,5
+41,65,C,28000,2,7
+66,100,D,38000,3,29

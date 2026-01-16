@@ -174,7 +174,7 @@ export default function DataManagementPage() {
   };
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen p-6 pt-30">
       <div className="mx-auto max-w-7xl">
         {/* ヘッダー */}
         <div className="mb-6">

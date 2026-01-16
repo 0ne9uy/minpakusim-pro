@@ -61,7 +61,7 @@ src/app/pro/
 │       ├── working-days-shinpou.csv        # ✅ 使用中（民泊新法適用時）
 │       ├── working-days-normal.csv # ✅ 使用中（民泊新法非適用時）
 │       ├── prefecture-month-index.csv # ✅ 使用中（月次変動係数）
-│       ├── monthly-index.csv       # ⚠️ 未使用（重複ファイル？）
+│       # monthly-index.csv は重複のため削除済み
 │       ├── building-age.csv        # ✅ 使用中
 │       ├── room-rank.csv           # ✅ 使用中
 │       ├── expenses.csv            # ✅ 使用中
@@ -419,7 +419,7 @@ const profit = totalRevenue - totalVariableCosts - totalFixedCosts;
 | working-days-shinpou.csv | ✅ 使用中 | 民泊新法適用時の稼働日数 | 命名が紛らわしい |
 | working-days-normal.csv | ✅ 使用中 | 民泊新法非適用時の稼働日数 | 命名が紛らわしい |
 | prefecture-month-index.csv | ✅ 使用中 | 月次変動係数 | なし |
-| monthly-index.csv | ❌ 未使用 | 重複？ | 削除を検討 |
+| ~~monthly-index.csv~~ | 削除済み | 重複のため削除 | - |
 | building-age.csv | ✅ 使用中 | 築年数係数 | なし |
 | room-rank.csv | ✅ 使用中 | 水道光熱費（面積ランク別） | 季節変動なし |
 | expenses.csv | ✅ 使用中 | ゴミ回収費・インターネット費 | なし |

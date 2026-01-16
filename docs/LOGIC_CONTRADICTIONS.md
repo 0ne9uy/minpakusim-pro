@@ -259,7 +259,7 @@ const otaFee = Math.round(typeRevenue * OTA_FEE_RATE);
 |-----------|-----------|--------|
 | `working-days-shinpou.csv` | 民泊新法適用時の稼働日数（少ない） | `working-days-with-law.csv` |
 | `working-days-normal.csv` | 民泊新法非適用時の稼働日数（多い） | `working-days-without-law.csv` |
-| `monthly-index.csv` | 未使用（重複？） | 削除 |
+| ~~`monthly-index.csv`~~ | 削除済み | - |
 | `prefecture-month-index.csv` | 実際に使用される月次変動係数 | `monthly-index.csv`に統一 |
 
 **影響**:

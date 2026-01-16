@@ -58,7 +58,7 @@ src/app/pro/
 │   ├── buildingTypes.ts      # 建物タイプ定数
 │   └── data/                 # CSVマスターデータ
 │       ├── base-price.csv          # ✅ 使用中
-│       ├── working-days.csv        # ✅ 使用中（民泊新法適用時）
+│       ├── working-days-shinpou.csv        # ✅ 使用中（民泊新法適用時）
 │       ├── working-days-normal.csv # ✅ 使用中（民泊新法非適用時）
 │       ├── prefecture-month-index.csv # ✅ 使用中（月次変動係数）
 │       ├── monthly-index.csv       # ⚠️ 未使用（重複ファイル？）
@@ -83,7 +83,7 @@ src/app/pro/
 ┌─────────────────────────────────────────────────────────────────────┐
 │ API: /api/simulation-data                                           │
 │ - base-price.csv                                                    │
-│ - working-days.csv / working-days-normal.csv (isLaw判定)            │
+│ - working-days-shinpou.csv / working-days-normal.csv (isLaw判定)            │
 │ - prefecture-month-index.csv                                        │
 │ - building-age.csv                                                  │
 │ - room-rank.csv                                                     │
@@ -416,7 +416,7 @@ const profit = totalRevenue - totalVariableCosts - totalFixedCosts;
 | ファイル名 | 状態 | 用途 | 問題点 |
 |-----------|------|------|--------|
 | base-price.csv | ✅ 使用中 | 都道府県×定員別の基本宿泊単価 | なし |
-| working-days.csv | ✅ 使用中 | 民泊新法適用時の稼働日数 | 命名が紛らわしい |
+| working-days-shinpou.csv | ✅ 使用中 | 民泊新法適用時の稼働日数 | 命名が紛らわしい |
 | working-days-normal.csv | ✅ 使用中 | 民泊新法非適用時の稼働日数 | 命名が紛らわしい |
 | prefecture-month-index.csv | ✅ 使用中 | 月次変動係数 | なし |
 | monthly-index.csv | ❌ 未使用 | 重複？ | 削除を検討 |
@@ -438,9 +438,9 @@ const profit = totalRevenue - totalVariableCosts - totalFixedCosts;
 - **値**: 定員数に対応する列の値
 - **特殊処理**: 定員2人の場合、ベッド数1なら「2ダブル」、それ以外は「2ツイン」を参照
 
-### 5.3 working-days.csv / working-days-normal.csv
+### 5.3 working-days-shinpou.csv / working-days-normal.csv
 
-**working-days.csv**（民泊新法適用時）:
+**working-days-shinpou.csv**（民泊新法適用時）:
 ```csv
 ,1,2,3,4,5,6,7,8,9,10,11,12
 北海道,10,9,11,13,17,18,19,20,17,14,11,10

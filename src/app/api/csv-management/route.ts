@@ -11,15 +11,15 @@ const CSV_FILES = [
     priority: "high",
   },
   {
-    name: "working-days.csv",
-    displayName: "稼働日数（通常）",
-    description: "都道府県×月別の稼働予測日数（民泊新法非適用）",
+    name: "working-days-shinpou.csv",
+    displayName: "稼働日数（民泊新法）",
+    description: "都道府県×月別の稼働予測日数（年間180日制限適用時）",
     priority: "high",
   },
   {
     name: "working-days-normal.csv",
-    displayName: "稼働日数（民泊新法）",
-    description: "都道府県×月別の稼働予測日数（年間180日制限）",
+    displayName: "稼働日数（通常）",
+    description: "都道府県×月別の稼働予測日数（民泊新法非適用時）",
     priority: "high",
   },
   {

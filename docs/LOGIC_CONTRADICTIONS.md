@@ -25,19 +25,19 @@
 
 ```typescript
 // 現在のコード（問題あり）
-const workingDaysFileName = isLaw ? "working-days-normal.csv" : "working-days.csv";
+const workingDaysFileName = isLaw ? "working-days-normal.csv" : "working-days-shinpou.csv";
 ```
 
 **CSVファイルの実際の内容**:
 
 | ファイル | 北海道・8月の稼働日数 | 年間合計（概算） |
 |----------|---------------------|-----------------|
-| working-days.csv | 15日 | 約130日 |
+| working-days-shinpou.csv | 15日 | 約130日 |
 | working-days-normal.csv | 25日 | 約213日 |
 
 **矛盾の説明**:
 
-- `working-days.csv` → 稼働日数が**少ない**（年間約130日）
+- `working-days-shinpou.csv` → 稼働日数が**少ない**（年間約130日）
 - `working-days-normal.csv` → 稼働日数が**多い**（年間約213日）
 
 しかし、ロジックでは：
@@ -50,7 +50,7 @@ const workingDaysFileName = isLaw ? "working-days-normal.csv" : "working-days.cs
 
 ```typescript
 // 修正版
-const workingDaysFileName = isLaw ? "working-days.csv" : "working-days-normal.csv";
+const workingDaysFileName = isLaw ? "working-days-shinpou.csv" : "working-days-normal.csv";
 ```
 
 **影響**:
@@ -257,7 +257,7 @@ const otaFee = Math.round(typeRevenue * OTA_FEE_RATE);
 
 | ファイル名 | 実際の内容 | 推奨名 |
 |-----------|-----------|--------|
-| `working-days.csv` | 民泊新法適用時の稼働日数（少ない） | `working-days-with-law.csv` |
+| `working-days-shinpou.csv` | 民泊新法適用時の稼働日数（少ない） | `working-days-with-law.csv` |
 | `working-days-normal.csv` | 民泊新法非適用時の稼働日数（多い） | `working-days-without-law.csv` |
 | `monthly-index.csv` | 未使用（重複？） | 削除 |
 | `prefecture-month-index.csv` | 実際に使用される月次変動係数 | `monthly-index.csv`に統一 |

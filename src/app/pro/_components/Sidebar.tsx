@@ -1,7 +1,7 @@
 // src/app/pro/_components/Sidebar.tsx
 "use client";
 
-import { AtSign, BookOpen, ChevronDown, ChevronRight, LineChart } from "lucide-react";
+import { AtSign, BookOpen, ChevronDown, ChevronRight, Database, LineChart } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -87,6 +87,19 @@ export default function Sidebar() {
 
       {/* その他 */}
       <div className="mt-1 space-y-1">
+        <Link
+          href="/pro/data-management"
+          className={`flex items-center justify-between rounded px-2 py-1.5 ${
+            pathname === "/pro/data-management" ? ACTIVE : HOVER
+          }`}
+        >
+          <span className="inline-flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            データ管理
+          </span>
+          <ChevronRight className="h-4 w-4" />
+        </Link>
+
         <Link
           href="/contact"
           className={`flex items-center justify-between rounded px-2 py-1.5 ${

@@ -15,108 +15,89 @@
 
 ## 1. 重大な問題（今すぐ修正が必要）
 
-### 1.1 稼働日数CSVファイルの選択ロジックが逆転している
+### 1.1 稼働日数CSVファイルの選択ロジック ✅ 修正済み
 
 **発見場所**: `/src/app/api/simulation-data/route.ts` 18-20行目
 
-**問題の内容**:
+**状態**: ✅ **修正完了**（2026-01-16）
 
-民泊新法適用フラグ（isLaw）に基づいてCSVファイルを選択するロジックが逆になっています。
-
-```typescript
-// 現在のコード（問題あり）
-const workingDaysFileName = isLaw ? "working-days-normal.csv" : "working-days-shinpou.csv";
-```
-
-**CSVファイルの実際の内容**:
-
-| ファイル | 北海道・8月の稼働日数 | 年間合計（概算） |
-|----------|---------------------|-----------------|
-| working-days-shinpou.csv | 15日 | 約130日 |
-| working-days-normal.csv | 25日 | 約213日 |
-
-**矛盾の説明**:
-
-- `working-days-shinpou.csv` → 稼働日数が**少ない**（年間約130日）
-- `working-days-normal.csv` → 稼働日数が**多い**（年間約213日）
-
-しかし、ロジックでは：
-- `isLaw = true`（民泊新法適用 = 180日制限あり）の時に、**多い方**のファイルを使用
-- `isLaw = false`（民泊新法非適用 = 制限なし）の時に、**少ない方**のファイルを使用
-
-これは明らかに逆です。
-
-**正しいロジック**:
+**現在のコード（正常）**:
 
 ```typescript
-// 修正版
+// 民泊新法適用時はworking-days-shinpou.csv（少ない稼働日数）を使用
+// 民泊新法非適用時はworking-days-normal.csv（多い稼働日数）を使用
 const workingDaysFileName = isLaw ? "working-days-shinpou.csv" : "working-days-normal.csv";
 ```
 
-**影響**:
-- 民泊新法適用時に過大な売上予測
-- 民泊新法非適用時に過小な売上予測
-- 180日制限の計算が無意味になる（元の値がすでに低いため）
+**CSVファイルの内容**:
+
+| ファイル | 北海道・8月の稼働日数 | 年間合計（概算） | 使用条件 |
+|----------|---------------------|-----------------|---------|
+| working-days-shinpou.csv | 15日 | 約130日 | 民泊新法適用時（isLaw=true） |
+| working-days-normal.csv | 25日 | 約213日 | 民泊新法非適用時（isLaw=false） |
+
+**ロジックの正当性**:
+
+- `isLaw = true`（民泊新法適用 = 180日制限あり）→ **少ない方**のファイル ✅
+- `isLaw = false`（民泊新法非適用 = 制限なし）→ **多い方**のファイル ✅
 
 ---
 
-### 1.2 清掃単価CSVが受信されても使用されていない
+### 1.2 清掃単価CSVがsimulate.tsで受け取られていない ✅ 修正済み
 
 **発見場所**:
 - API: `/src/app/api/simulation-data/route.ts` 24行目、35行目
-- シミュレーション: `/src/app/pro/lib/simulate.ts` 279-286行目
+- シミュレーション: `/src/app/pro/lib/simulate.ts` 330-340行目
 
-**問題の内容**:
+**状態**: ✅ **修正完了**（2026-01-16）
 
-APIは`cleaningCsvText`を返しているが、シミュレーション関数では受け取っていません。
+**修正内容**:
 
-```typescript
-// API側（route.ts）- 返している
-return NextResponse.json({
-  baseCsvText,
-  workingDaysCsvText,
-  indexCsvText,
-  rankCsvText,
-  cleaningCsvText,  // ← 返している
-  expensesCsvText,
-  buildingAgeData,
-});
-
-// シミュレーション側（simulate.ts）- 受け取っていない
-const {
-  baseCsvText,
-  workingDaysCsvText,
-  indexCsvText,
-  rankCsvText,
-  // cleaningCsvText ← ここにない！
-  expensesCsvText,
-  buildingAgeData,
-} = await simRes.json();
-```
-
-**影響**:
-- `cleaning-price.csv`のデータが完全に無視される
-- ユーザーが清掃単価を入力しない場合のデフォルト値がない
-- 面積ランク×ベッド数に応じた適切な清掃単価が設定されない
-
-**修正方法**:
+1. `simulate.ts`で`cleaningCsvText`を受け取るように修正
+2. `CleaningPriceRow`型を定義
+3. `getRoomRankFromArea()`関数を追加（面積からランクA/B/C/Dを取得）
+4. `getCleaningPriceFromTable()`関数を追加（ランク×ベッド数から規定値を取得）
+5. 清掃単価の計算でユーザー入力がない場合はテーブルから規定値を使用
 
 ```typescript
-// simulate.ts の修正
-const {
-  baseCsvText,
-  workingDaysCsvText,
-  indexCsvText,
-  rankCsvText,
-  cleaningCsvText,  // 追加
-  expensesCsvText,
-  buildingAgeData,
-} = await simRes.json();
-
-// 清掃単価テーブルの作成と利用ロジックを追加
-const cleaningRows = parseCsv(cleaningCsvText);
-const cleaningUnit = room.cleaningUnitPrice ?? getCleaningPriceFromTable(cleaningRows, roomRank, beds);
+// 清掃単価: ユーザー入力があればそれを使用、なければCSVテーブルから規定値を取得
+const roomArea = N(room.roomArea, 0);
+const roomRank = getRoomRankFromArea(rankRows, roomArea);
+const cleaningFromTable = getCleaningPriceFromTable(cleaningRows, roomRank, capacity, beds);
+const cleaningUnit =
+  room.cleaningUnitPrice != null ? N(room.cleaningUnitPrice, cleaningFromTable) : cleaningFromTable;
 ```
+
+**動作**:
+- ユーザーが清掃単価を入力した場合 → その値を使用
+- ユーザーが清掃単価を入力しない場合 → `cleaning-price.csv`から面積ランク×ベッド数に基づく規定値を使用
+- 規定値が見つからない場合 → デフォルト3000円
+
+#### ✅ 実装完了：規定値表示＋手動入力可能
+
+**実装済み内容**（2026-01-16）：
+
+1. ✅ `simulate.ts`で`cleaningCsvText`を受け取る
+2. ✅ `CleaningPriceRow`型を定義
+3. ✅ `getRoomRankFromArea()`関数を実装（面積からランクA/B/C/Dを取得）
+4. ✅ `getCleaningPriceFromTable()`関数を実装（ランク×ベッド数から規定値を取得）
+5. ✅ CSVデータ欠損時のフォールバック（最も近い組み合わせを探索、デフォルト3000円）
+
+**実装済みのロジック**：
+```typescript
+// 清掃単価: ユーザー入力があればそれを使用、なければCSVテーブルから規定値を取得
+const roomArea = N(room.roomArea, 0);
+const roomRank = getRoomRankFromArea(rankRows, roomArea);
+const cleaningFromTable = getCleaningPriceFromTable(cleaningRows, roomRank, capacity, beds);
+const cleaningUnit =
+  room.cleaningUnitPrice != null ? N(room.cleaningUnitPrice, cleaningFromTable) : cleaningFromTable;
+```
+
+**今後の改善候補**（任意）：
+- フォームの必須バリデーションを任意に変更
+- フォーム初期値として規定値を表示（面積・ベッド数から計算）
+- リアルタイム更新機能（面積・ベッド数変更時に規定値を再計算）
+- UI改善（「規定値: ¥X,XXX（変更可能）」と表示）
 
 ---
 
@@ -170,11 +151,11 @@ const cleaningCost = cleaningCount * cleaningCostUnit;
 
 ---
 
-### 2.2 稼働率の計算ロジックが直感的でない
+### 2.2 稼働率の計算ロジック（実装は正しい）
 
 **発見場所**: `/src/app/pro/lib/simulate.ts` 529-551行目
 
-**問題の内容**:
+**実装内容**:
 
 民泊新法非適用時の稼働率計算が「カレンダー日数」を分母にしています。
 
@@ -186,29 +167,43 @@ const occupancyRate = (totalEffectiveWorkingDays / maxPossibleDays) * 100;
 
 **具体例**（12ヶ月シミュレーション、民泊新法非適用）:
 
-| 項目 | 値 |
-|------|-----|
-| CSVからの稼働日数合計 | 213日 |
-| カレンダー日数 | 365日 |
-| 計算される稼働率 | 213 ÷ 365 = **58.4%** |
+| 項目 | 値 | 説明 |
+|------|-----|------|
+| CSVからの稼働日数合計 | 213日 | 予測稼働日数（実際に予約が入ると見込まれる日数） |
+| カレンダー日数 | 365日 | 稼働可能日数（民泊新法非適用時は理論上365日すべて稼働可能） |
+| 計算される稼働率 | 213 ÷ 365 = **58.4%** | **予約が入る可能性がある日のうち、何%が稼働するか** |
 
-**矛盾の説明**:
+**実装の妥当性**:
 
-- ユーザーは「予約が入る可能性がある日のうち、何%が稼働したか」を期待する
-- しかし実際は「1年のうち何%稼働したか」を計算している
-- CSVの稼働日数がすでに「現実的な稼働見込み」を反映しているなら、稼働率は常に低く見える
+✅ **実装は正しく、ユーザーの期待に合致しています**
 
-**2つの解釈**:
+- 民泊新法非適用時: 稼働可能日数 = 365日（カレンダー日数）
+- CSVの値（213日）= 予測稼働日数
+- 稼働率 = 213 ÷ 365 = 58.4% = 「予約が入る可能性がある日（365日）のうち、何%が稼働するか（213日）」
 
-1. **CSVの値 = 予測稼働日数**: この場合、稼働率は意味がない（予測値/最大値では比較にならない）
-2. **CSVの値 = 稼働可能日数**: この場合、別途「実際の稼働率」が必要
+**民泊新法適用時との比較**:
 
-**推奨される修正**:
+| 項目 | 民泊新法適用時 | 民泊新法非適用時 |
+|------|--------------|----------------|
+| 稼働可能日数 | 180日（法律上の上限） | 365日（カレンダー日数） |
+| 計算式 | 予測稼働日数 ÷ 180 × 100 | 予測稼働日数 ÷ 365 × 100 |
+| 意味 | 「法律上の上限の何%を使うか」 | 「予約が入る可能性がある日のうち、何%が稼働するか」 |
+| 一貫性 | ✅ 両方とも「稼働可能日数に対する稼働率」という同じ概念 | |
+
+**改善提案（任意）**:
+
+実装は正しいですが、UIでの説明を追加することで、より分かりやすくなります：
 
 ```typescript
-// 2種類の稼働率を計算
-const calendarOccupancy = (workingDays / calendarDays) * 100;  // 年間稼働率
-const potentialOccupancy = (workingDays / potentialDays) * 100; // 潜在稼働率
+// 現在の実装を維持
+const occupancyRate = (totalEffectiveWorkingDays / maxPossibleDays) * 100;
+
+// UI表示例
+if (facility.isLaw) {
+  // "稼働率: 72.2%（年間180日のうち130日稼働予定）"
+} else {
+  // "稼働率: 58.4%（年間365日のうち213日稼働予定）"
+}
 ```
 
 ---
@@ -379,27 +374,27 @@ const adjustedWorkingDays = workingDays * reliabilityFactor;
 
 ### 今すぐ修正必要（P0）
 
-| # | 問題 | 影響度 | 修正難易度 |
-|---|------|--------|-----------|
-| 1 | 稼働日数CSVファイル選択ロジックの逆転 | **致命的** | 簡単（1行修正） |
-| 2 | cleaningCsvTextの未使用 | 高 | 中（数十行追加） |
+| # | 問題 | 影響度 | 修正難易度 | 状態 |
+|---|------|--------|-----------|------|
+| 1 | ~~稼働日数CSVファイル選択ロジックの逆転~~ | ~~致命的~~ | ~~簡単~~ | ✅ 修正済み |
+| 2 | ~~cleaningCsvTextがsimulate.tsで未受信~~ | ~~高~~ | ~~中~~ | ✅ 修正済み |
 
 ### 早期修正推奨（P1）
 
-| # | 問題 | 影響度 | 修正難易度 |
-|---|------|--------|-----------|
-| 3 | 清掃費の売上/経費連動 | 中 | 中 |
-| 4 | 稼働率計算ロジック | 中 | 中 |
-| 5 | ファイル命名規則の統一 | 低 | 簡単 |
+| # | 問題 | 影響度 | 修正難易度 | 状態 |
+|---|------|--------|-----------|------|
+| 3 | 清掃費の売上/経費連動 | 中 | 中 | 仕様確認要 |
+| 4 | ~~稼働率計算ロジック~~ | - | - | ✅ 実装は正しい |
+| 5 | ファイル命名規則の統一 | 低 | 簡単 | 🔲 未着手 |
 
 ### 将来対応（P2）
 
-| # | 問題 | 影響度 | 修正難易度 |
-|---|------|--------|-----------|
-| 6 | ハードコード定数の設定化 | 低 | 中 |
-| 7 | 水道光熱費の季節変動 | 低 | 中 |
-| 8 | 税金計算の追加 | 中 | 高 |
-| 9 | キャンセルリスク考慮 | 中 | 中 |
+| # | 問題 | 影響度 | 修正難易度 | 状態 |
+|---|------|--------|-----------|------|
+| 6 | ハードコード定数の設定化 | 低 | 中 | 🔲 未着手 |
+| 7 | 水道光熱費の季節変動 | 低 | 中 | 🔲 未着手 |
+| 8 | 税金計算の追加 | 中 | 高 | 🔲 未着手 |
+| 9 | キャンセルリスク考慮 | 中 | 中 | 🔲 未着手 |
 
 ---
 
@@ -407,19 +402,34 @@ const adjustedWorkingDays = workingDays * reliabilityFactor;
 
 ```
 src/app/api/simulation-data/route.ts
-├── 18-20行目: 稼働日数CSVファイル選択（★問題1）
-└── 35行目: cleaningCsvText返却（★問題2関連）
+├── 18-20行目: 稼働日数CSVファイル選択（✅ 修正済み）
+└── 31-38行目: cleaningCsvText返却（✅ 正常に返却中）
 
 src/app/pro/lib/simulate.ts
 ├── 21-26行目: ハードコード定数（問題6）
-├── 279-286行目: API応答のdestructuring（★問題2）
-├── 377行目: 水道光熱費計算（問題7）
-├── 409-428行目: 清掃売上/経費計算（問題3）
-├── 419-429行目: 成長率と経費計算（問題4関連）
-└── 529-551行目: 稼働率計算（問題4）
+├── 123-131行目: CleaningPriceRow型定義（✅ 新規追加）
+├── 140-147行目: getRoomRankFromArea()関数（✅ 新規追加）
+├── 149-183行目: getCleaningPriceFromTable()関数（✅ 新規追加）
+├── 330-340行目: API応答のdestructuring（✅ 修正済み - cleaningCsvText受信）
+├── 350行目: cleaningRows パース（✅ 新規追加）
+├── 437-441行目: 清掃単価の規定値取得ロジック（✅ 新規追加）
+├── 467-478行目: 清掃売上/経費計算（問題3 - 仕様確認中）
+├── 479-489行目: 成長率と経費計算（仕様確認中）
+└── 590-610行目: 稼働率計算（✅ 正しく実装）
 ```
 
 ---
 
-*作成日: 2026-01-16*
+## 変更履歴
+
+| 日付 | 変更内容 |
+|------|----------|
+| 2026-01-16 | v1.3: cleaningCsvText問題を修正完了（simulate.tsで受信、規定値フォールバック実装） |
+| 2026-01-16 | v1.2: CSVファイル選択ロジック修正済みに更新、稼働率計算は正しいことを確認、問題箇所マッピング更新 |
+| 2026-01-16 | v1.1: 稼働率計算ロジックの評価を「実装は正しい」に更新 |
+| 2026-01-16 | v1.0: 初版作成 |
+
+---
+
+*最終更新: 2026-01-16*
 *作成者: Claude Opus 4.5*

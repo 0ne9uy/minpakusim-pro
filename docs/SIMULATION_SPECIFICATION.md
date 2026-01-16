@@ -65,12 +65,12 @@ src/app/pro/
 │       ├── building-age.csv        # ✅ 使用中
 │       ├── room-rank.csv           # ✅ 使用中
 │       ├── expenses.csv            # ✅ 使用中
-│       ├── cleaning-price.csv      # ❌ 未使用（API応答に含まれない）
+│       ├── cleaning-price.csv      # ✅ 使用中（規定値フォールバック）
 │       └── occupancy-rate.csv      # ❌ 未使用
 ├── results/
 │   ├── components/           # 結果表示コンポーネント
 │   └── hooks/                # シミュレーション実行フック
-└── data-management/          # データ管理機能（新規実装）
+└── (data-management/)        # ❌ 削除済み（永続保存不可のため）
 ```
 
 ### 2.2 データフロー
@@ -83,12 +83,12 @@ src/app/pro/
 ┌─────────────────────────────────────────────────────────────────────┐
 │ API: /api/simulation-data                                           │
 │ - base-price.csv                                                    │
-│ - working-days-shinpou.csv / working-days-normal.csv (isLaw判定)            │
+│ - working-days-shinpou.csv / working-days-normal.csv (isLaw判定)    │
 │ - prefecture-month-index.csv                                        │
 │ - building-age.csv                                                  │
 │ - room-rank.csv                                                     │
 │ - expenses.csv                                                      │
-│ ※ cleaning-price.csvは読み込むが応答に含めていない（バグ）           │
+│ - cleaning-price.csv（✅ APIは返している）                          │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -423,7 +423,7 @@ const profit = totalRevenue - totalVariableCosts - totalFixedCosts;
 | building-age.csv | ✅ 使用中 | 築年数係数 | なし |
 | room-rank.csv | ✅ 使用中 | 水道光熱費（面積ランク別） | 季節変動なし |
 | expenses.csv | ✅ 使用中 | ゴミ回収費・インターネット費 | なし |
-| cleaning-price.csv | ❌ 未使用 | 清掃単価テーブル | **API応答に含まれない（バグ）** |
+| cleaning-price.csv | ✅ 使用中 | 清掃単価テーブル | なし（規定値フォールバックとして使用） |
 | occupancy-rate.csv | ❌ 未使用 | 事前計算済み稼働率？ | 用途不明 |
 
 ### 5.2 base-price.csv（基本宿泊単価）
@@ -512,33 +512,36 @@ rooms,trash,internet
 100,50000,30000
 ```
 
-### 5.8 cleaning-price.csv（清掃基準単価）⚠️ 未使用
+### 5.8 cleaning-price.csv（清掃基準単価）✅ 使用中
 ```csv
-,1,2ダブル,2ツイン,3,4,...
-A,2500,3000,3500,4000,4500,...
-B,3000,3500,4000,4500,5000,...
-C,3500,4000,4500,5000,5500,...
-D,4000,4500,5000,5500,6000,...
+広さ,ベッド数,清掃基準単価
+A,1,2500
+A,2ダブル,2800
+A,2ツイン,3200
+...
+D,29,22500
 ```
 
-- **現状**: ファイルは存在するが、APIが応答に含めていないため未使用
-- **原因**: `/api/simulation-data/route.ts` でファイルを読み込むが、JSONレスポンスに含めていない
+- **用途**: ユーザーが清掃単価を入力しない場合のデフォルト値として使用
+- **検索ロジック**: 面積ランク（A/B/C/D）× ベッド数で清掃単価を取得
 
 ```typescript
-// route.ts line 24 - ファイルは読んでいる
-const cleaningCsvText = readFileSync(join(proDataDir, "cleaning-price.csv"), "utf-8");
-
-// しかし、レスポンスに含めていない（バグ）
-return NextResponse.json({
-  baseCsvText,
-  workingDaysCsvText,
-  indexCsvText,
-  rankCsvText,
-  // cleaningCsvText ← 欠落！
-  expensesCsvText,
-  buildingAgeData,
-});
+// simulate.ts での使用方法
+const roomRank = getRoomRankFromArea(rankRows, roomArea); // 面積からランクを取得
+const cleaningFromTable = getCleaningPriceFromTable(cleaningRows, roomRank, capacity, beds);
+const cleaningUnit =
+  room.cleaningUnitPrice != null
+    ? N(room.cleaningUnitPrice, cleaningFromTable)  // ユーザー入力優先
+    : cleaningFromTable;                             // なければテーブルから
 ```
+
+**面積ランク判定**（room-rank.csvと共通）:
+| 面積（m²） | ランク |
+|-----------|--------|
+| 1〜25 | A |
+| 26〜40 | B |
+| 41〜65 | C |
+| 66〜100 | D |
 
 ---
 
@@ -619,30 +622,22 @@ function calculateEffectiveWorkingDays(
 
 ### 6.2 中程度の問題（P1）
 
-#### 問題4: cleaning-price.csv がAPI応答に含まれない 🆕
-**状態**: 未修正（バグ）
+#### ~~問題4: cleaning-price.csv がsimulate.tsで使用されていない~~ ✅ 修正済み
+**状態**: 修正完了（2026-01-16）
 
-**現象**:
-- `/api/simulation-data/route.ts` でファイルを読み込んでいる
-- しかし、NextResponse.json() の戻り値に含めていない
-- そのため、simulate() 関数で清掃単価テーブルを使用できない
+**修正内容**:
+1. `simulate.ts`で`cleaningCsvText`を受け取るように修正
+2. `CleaningPriceRow`型を定義
+3. `getRoomRankFromArea()`関数を追加（面積からランクA/B/C/Dを取得）
+4. `getCleaningPriceFromTable()`関数を追加（ランク×ベッド数から規定値を取得）
+5. 清掃単価の計算でユーザー入力がない場合はテーブルから規定値を使用
 
-**影響**:
-- 清掃単価は常にユーザー入力に依存
-- 面積ランク×ベッド数の標準単価テーブルが活用されていない
-
-**修正方法**:
 ```typescript
-// /api/simulation-data/route.ts
-return NextResponse.json({
-  baseCsvText,
-  workingDaysCsvText,
-  indexCsvText,
-  rankCsvText,
-  cleaningCsvText,  // ← 追加
-  expensesCsvText,
-  buildingAgeData,
-});
+// 清掃単価: ユーザー入力があればそれを使用、なければCSVテーブルから規定値を取得
+const roomRank = getRoomRankFromArea(rankRows, roomArea);
+const cleaningFromTable = getCleaningPriceFromTable(cleaningRows, roomRank, capacity, beds);
+const cleaningUnit =
+  room.cleaningUnitPrice != null ? N(room.cleaningUnitPrice, cleaningFromTable) : cleaningFromTable;
 ```
 
 #### 問題5: 月次変動係数の根拠不明
@@ -667,16 +662,18 @@ return NextResponse.json({
 - 季節係数の追加（例: 夏1.3倍、冬1.4倍）
 - または、稼働日数に連動した変動費化
 
-#### 問題7: 稼働率計算のロジック問題（非民泊新法時）🆕
-**状態**: 要検討
+#### ~~問題7: 稼働率計算のロジック問題（非民泊新法時）~~ ✅ 正しい実装
+**状態**: 実装は正しい（仕様確認済み）
 
-**現象**:
+**実装内容**:
 - 非民泊新法時、稼働率 = 稼働日数 ÷ カレンダー日数
-- 例: 12ヶ月で稼働日数合計120日、カレンダー日数365日 → 稼働率32.9%
+- 例: 12ヶ月で稼働日数合計213日、カレンダー日数365日 → 稼働率58.4%
 
-**懸念**:
-- 稼働率が低く見える（実際の「稼働可能日の稼働率」ではない）
-- 「カレンダー日数ベースの稼働率」と「稼働可能日ベースの稼働率」の2種類が必要かもしれない
+**実装の妥当性**:
+- 民泊新法非適用時: 稼働可能日数 = 365日（カレンダー日数）
+- CSVの値 = 予測稼働日数
+- 稼働率 = 「予約が入る可能性がある日のうち、何%が稼働するか」
+- 民泊新法適用時との一貫性あり（両方とも「稼働可能日数に対する稼働率」）
 
 ### 6.3 軽度の問題（P2）
 
@@ -745,7 +742,7 @@ return NextResponse.json({
 
 | # | タスク | 影響度 | 工数 | 状態 |
 |---|--------|--------|------|------|
-| 2-1 | cleaning-price.csvをAPI応答に追加 | 高 | 小 | 🔲 未着手 |
+| 2-1 | simulate.tsでcleaningCsvTextを受け取る | 高 | 小 | ✅ 完了 |
 | 2-2 | 不要CSVファイルの整理 | 低 | 小 | 🔲 未着手 |
 | 2-3 | working-daysファイルの命名改善 | 低 | 小 | 🔲 未着手 |
 
@@ -885,6 +882,8 @@ const MINPAKU_LAW_MAX_DAYS = 180;   // 年間稼働上限（日）
 
 | 日付 | バージョン | 変更内容 |
 |------|-----------|----------|
+| 2026-01-16 | v1.4 | cleaningCsvText問題を修正完了: simulate.tsで受信、getRoomRankFromArea/getCleaningPriceFromTable関数追加、規定値フォールバック実装 |
+| 2026-01-16 | v1.3 | 再調査に基づく更新: CSVファイル選択ロジック修正済み確認、cleaningCsvText問題の正確な原因特定（APIは返しているがsimulate.tsで未受信）、稼働率計算は正しい実装であることを確認 |
 | 2026-01-16 | v1.2 | 詳細調査に基づく全面更新: 新規問題の追加、CSVファイル状態の明確化、改善ロードマップ更新 |
 | 2026-01-16 | v1.1 | 重大バグ修正: 稼働率計算、清掃費明確化、民泊新法180日制限実装 |
 | 2026-01-16 | v1.0 | 初版作成 |

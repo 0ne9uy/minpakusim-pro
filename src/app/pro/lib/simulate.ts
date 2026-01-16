@@ -130,10 +130,68 @@ type RankRow = {
   maxCapacity: string;
 };
 
+/* 清掃単価行 */
+type CleaningPriceRow = {
+  広さ: string;
+  ベッド数: string;
+  清掃基準単価: string;
+};
+
 /* 部屋面積に応じた水道光熱費を取得 */
 function getWaterUtilityCostForRoom(rankRows: RankRow[], area: number): number {
   const row = rankRows.find((r) => N(r.minArea) <= area && area <= N(r.maxArea));
   return row ? N(row.waterutilityCost, 0) : 0;
+}
+
+/* 部屋面積からランク（A/B/C/D）を取得 */
+function getRoomRankFromArea(rankRows: RankRow[], area: number): string {
+  const row = rankRows.find((r) => N(r.minArea) <= area && area <= N(r.maxArea));
+  return row ? row.rank : "A"; // デフォルトはA
+}
+
+/* 清掃単価テーブルから規定値を取得 */
+function getCleaningPriceFromTable(
+  cleaningRows: CleaningPriceRow[],
+  roomRank: string,
+  capacity: number,
+  beds: number,
+): number {
+  // ベッド数のキーを決定（宿泊単価と同じロジック）
+  let bedKey: string;
+  if (capacity === 2) {
+    bedKey = beds >= 2 ? "2ツイン" : "2ダブル";
+  } else {
+    bedKey = String(beds);
+  }
+
+  // まずランクとベッド数で検索
+  let row = cleaningRows.find(
+    (r) => r.広さ === roomRank && r.ベッド数 === bedKey
+  );
+
+  // 見つからない場合、ランクと数値ベッド数で検索
+  if (!row) {
+    row = cleaningRows.find(
+      (r) => r.広さ === roomRank && r.ベッド数 === String(beds)
+    );
+  }
+
+  // まだ見つからない場合、同じランクの最も近いベッド数を検索
+  if (!row) {
+    const sameRankRows = cleaningRows.filter((r) => r.広さ === roomRank);
+    if (sameRankRows.length > 0) {
+      // ベッド数が最も近い行を見つける
+      row = sameRankRows.reduce((closest, current) => {
+        const currentBeds = N(current.ベッド数.replace(/[^\d]/g, ""), 0);
+        const closestBeds = N(closest.ベッド数.replace(/[^\d]/g, ""), 0);
+        return Math.abs(currentBeds - beds) < Math.abs(closestBeds - beds)
+          ? current
+          : closest;
+      });
+    }
+  }
+
+  return row ? N(row.清掃基準単価, 3000) : 3000; // デフォルト3000円
 }
 
 /* シミュレーションオプション */
@@ -281,6 +339,7 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
     workingDaysCsvText,
     indexCsvText,
     rankCsvText,
+    cleaningCsvText,
     expensesCsvText,
     buildingAgeData,
   } = await simRes.json();
@@ -290,6 +349,7 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
   const workingDaysRows = parseCsv(workingDaysCsvText);
   const indexRows = parseCsv(indexCsvText);
   const rankRows = parseCsv<RankRow>(rankCsvText);
+  const cleaningRows = parseCsv<CleaningPriceRow>(cleaningCsvText);
   const buildingAgeRows = parseCsv<BuildingAgeRow>(buildingAgeData);
   const expensesRows = parseCsv(expensesCsvText);
 
@@ -371,10 +431,17 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
       room.lodgingUnitPrice != null ? N(room.lodgingUnitPrice, fromTable) : fromTable;
 
     const avgStay = N(room.avgStayNights, 2.5) || 2.5;
-    const cleaningUnit = N(room.cleaningUnitPrice, 0);
+
+    // 清掃単価: ユーザー入力があればそれを使用、なければCSVテーブルから規定値を取得
+    const roomArea = N(room.roomArea, 0);
+    const roomRank = getRoomRankFromArea(rankRows, roomArea);
+    const cleaningFromTable = getCleaningPriceFromTable(cleaningRows, roomRank, capacity, beds);
+    const cleaningUnit =
+      room.cleaningUnitPrice != null ? N(room.cleaningUnitPrice, cleaningFromTable) : cleaningFromTable;
+
     const consumablesPerNight = N(room.consumablesPerNight, 0);
 
-    const waterUnitPerMonth = getWaterUtilityCostForRoom(rankRows, N(room.roomArea, 0)) * roomCount;
+    const waterUnitPerMonth = getWaterUtilityCostForRoom(rankRows, roomArea) * roomCount;
 
     console.log(`\n🏠 部屋タイプ ${idxRoom + 1}: ${room.name}`);
     console.log("  基本情報:", {
@@ -382,12 +449,15 @@ export async function simulate(facility: FormValues, rooms: RoomType[], opts?: S
       定員: capacity,
       ベッド数: beds,
       面積: room.roomArea,
+      ランク: roomRank,
     });
     console.log("  💰 入力された単価設定:");
     console.log(
       `    基準宿泊単価: ¥${baseNightly.toLocaleString()}${room.lodgingUnitPrice != null ? " (ユーザー入力)" : ` (テーブルから: ¥${fromTable.toLocaleString()})`}`,
     );
-    console.log(`    清掃単価: ¥${cleaningUnit.toLocaleString()}`);
+    console.log(
+      `    清掃単価: ¥${cleaningUnit.toLocaleString()}${room.cleaningUnitPrice != null ? " (ユーザー入力)" : ` (テーブルから: ¥${cleaningFromTable.toLocaleString()})`}`,
+    );
     console.log(`    消耗品単価/泊: ¥${consumablesPerNight.toLocaleString()}`);
     console.log(`    平均宿泊数: ${avgStay}泊`);
     console.log(`    水道光熱費（月額/全室）: ¥${waterUnitPerMonth.toLocaleString()}`);

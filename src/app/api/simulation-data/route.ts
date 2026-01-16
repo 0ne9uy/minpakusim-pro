@@ -1,9 +1,9 @@
 // Pro版専用のAPIエンドポイント
 // Simple版とは独立して動作し、buildingAgeDataを含むすべてのデータを提供
 
-import { readFileSync } from "fs";
+import { readFileSync } from "node:fs";
 import { NextResponse } from "next/server";
-import { join } from "path";
+import { join } from "node:path";
 
 export async function GET(request: Request) {
   const proDataDir = join(process.cwd(), "src/app/pro/lib/data");

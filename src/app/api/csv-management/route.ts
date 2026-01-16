@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, statSync, copyFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, copyFileSync } from "node:fs";
 import { NextResponse } from "next/server";
-import { join } from "path";
+import { join } from "node:path";
 
 // CSVファイルの定義
 const CSV_FILES = [
@@ -198,7 +198,7 @@ export async function POST(request: Request) {
       // backupsディレクトリがなければ作成
       const backupDir = join(dataDir, "backups");
       if (!existsSync(backupDir)) {
-        const { mkdirSync } = await import("fs");
+        const { mkdirSync } = await import("node:fs");
         mkdirSync(backupDir, { recursive: true });
       }
 
